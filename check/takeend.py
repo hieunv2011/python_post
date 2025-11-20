@@ -124,7 +124,7 @@ def write_output(results, output_path):
 
 # ===== Main =====
 def main():
-    log_path = os.path.join(os.path.dirname(__file__), "test.log")
+    log_path = os.path.join(os.path.dirname(__file__), "test07.log")
     output_path = os.path.join(os.path.dirname(__file__), "sessions_state_2.txt")
 
     print("Đang đọc session_id từ log...")

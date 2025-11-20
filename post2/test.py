@@ -1,3 +1,201 @@
+# import os
+# import paramiko
+# import psycopg2
+# from sshtunnel import SSHTunnelForwarder
+# from datetime import datetime
+# import requests
+# import time
+
+# # ===== Patch paramiko DSSKey cho sshtunnel =====
+# if not hasattr(paramiko, 'DSSKey'):
+#     try:
+#         from paramiko.dsskey import DSSKey as _DSSKey
+#     except Exception:
+#         try:
+#             from paramiko.pkey import DSSKey as _DSSKey
+#         except Exception:
+#             _DSSKey = None
+#     if _DSSKey is not None:
+#         paramiko.DSSKey = _DSSKey
+#     else:
+#         try:
+#             from paramiko.pkey import PKey as _BasePKey
+#         except Exception:
+#             _BasePKey = object
+#         class DSSKey(_BasePKey):
+#             pass
+#         paramiko.DSSKey = DSSKey
+
+# # ===== Cấu hình SSH & PostgreSQL =====
+# SSH_HOST = 'dat.shlx.vn'
+# SSH_PORT = 22
+# SSH_USER = 'root'
+# SSH_PASSWORD = 'R6lC%*sDpd7u'
+# DB_HOST = 'localhost'
+# DB_PORT = 5432
+# DB_USER = 'shlx'
+# DB_PASSWORD = '123456'
+# DB_NAME = 'shlx'
+
+# # ===== JWT cố định =====
+# JWT_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOjI2NywiZXhwIjoxNzY0NTYxODE0fQ.9BLpbjJJyPFr1yHMLJZhXnIrdZi2ncyhLxoKVGe0b2c"
+
+# PROCESS_FILE = os.path.join(os.path.dirname(__file__), "process.txt")
+
+# # ===== Hàm parse log =====
+# def parse_line(parts):
+#     if len(parts) < 11:
+#         return None
+#     return {
+#         "sn": parts[0],
+#         "v": parts[1],
+#         "iid": parts[2],
+#         "tid": parts[3],
+#         "timestamp": int(parts[5]),
+#         "lat": parts[6],
+#         "lng": parts[7],
+#         "velocity": parts[8],
+#         "distance": parts[9],
+#         "distance2": parts[10],
+#         "direction": parts[11] if len(parts) > 11 else "0",
+#         "session_id": parts[4],
+#         "session_state": parts[12] if len(parts) > 12 else "1",
+#         "face_id": parts[13] if len(parts) > 13 else "1",
+#         "face_image": " ".join(parts[14:]) if len(parts) > 14 else ""
+#     }
+
+# # ===== Hàm POST batch cho 1 session =====
+# def post_session(url, records, dry_run=False):
+#     headers = {"Authorization": f"Bearer {JWT_TOKEN}"}
+#     body_lines = []
+
+#     for r in records:
+#         # Không gửi face_image trong POST
+#         body_fields = [
+#             str(r["timestamp"]), r["lat"], r["lng"],
+#             r["velocity"], r["distance"], r["distance2"],
+#             r["direction"], r["session_id"], r["session_state"], r["face_id"]
+#         ]
+#         body_lines.append(" ".join(body_fields))
+
+#     body = "\n".join(body_lines)
+#     print(f"\n--- POST session ({len(records)} bản ghi) ---")
+#     print("URL:", url)
+#     print("BODY:\n", body)
+
+#     if dry_run:
+#         print("[DRY-RUN] Không gửi POST thật.")
+#         return
+
+#     try:
+#         response = requests.post(url, headers=headers, data=body)
+#         if response.status_code == 200:
+#             print("✅ POST thành công")
+#         else:
+#             print(f"⚠️ POST lỗi: {response.status_code} {response.text}")
+#     except Exception as e:
+#         print(f"❌ POST thất bại: {e}")
+
+# # ===== Update face_image =====
+# def update_face_image(records_with_image, cur=None, dry_run=False):
+#     if not records_with_image:
+#         print("\nKhông có bản ghi nào có ảnh để UPDATE.")
+#         return
+
+#     print(f"\n=== BẮT ĐẦU UPDATE ẢNH ({len(records_with_image)} bản ghi) ===")
+#     for r in records_with_image:
+#         event_date = datetime.utcfromtimestamp(r["timestamp"]).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+#         sql = """
+#         UPDATE trainee_outdoor_gps_logs
+#         SET face_image = %s
+#         WHERE session_id = %s
+#           AND event_date = %s
+#           AND face_id = 1
+#         """
+#         if dry_run:
+#             print(f"[DRY-RUN] UPDATE face_image session_id={r['session_id']} event_date={event_date}")
+#         else:
+#             cur.execute(sql, (r["face_image"], r["session_id"], event_date))
+#             print(f"✅ UPDATE face_image session_id={r['session_id']} event_date={event_date}")
+
+# # ===== Main =====
+# def main():
+#     # Đọc log
+#     file_path = os.path.join(os.path.dirname(__file__), "test.log")
+#     lines = []
+#     with open(file_path, "r", encoding="utf-8") as f:
+#         for line in f:
+#             parts = line.strip().split()
+#             parsed = parse_line(parts)
+#             if parsed:
+#                 lines.append(parsed)
+#     if not lines:
+#         print("❌ Không có bản ghi nào trong file log")
+#         return
+
+#     # Nhóm theo session
+#     sessions = {}
+#     for r in lines:
+#         sessions.setdefault(r["session_id"], []).append(r)
+
+#     # Load session đã post
+#     processed_sessions = set()
+#     if os.path.exists(PROCESS_FILE):
+#         with open(PROCESS_FILE, "r") as f:
+#             processed_sessions = set(line.strip() for line in f if line.strip())
+
+#     confirm = input("Bạn có muốn thực sự POST và UPDATE tất cả dữ liệu không? (y/n): ").strip().lower()
+#     dry_run = confirm != 'y'
+
+#     with SSHTunnelForwarder(
+#         (SSH_HOST, SSH_PORT),
+#         ssh_username=SSH_USER,
+#         ssh_password=SSH_PASSWORD,
+#         remote_bind_address=(DB_HOST, DB_PORT)
+#     ) as tunnel:
+#         local_port = tunnel.local_bind_port
+#         conn = psycopg2.connect(
+#             host='127.0.0.1', port=local_port,
+#             user=DB_USER, password=DB_PASSWORD, dbname=DB_NAME
+#         )
+#         try:
+#             with conn.cursor() as cur:
+#                 total_sessions = len(sessions)
+#                 for idx, (sid, records) in enumerate(sessions.items(), start=1):
+#                     if sid in processed_sessions:
+#                         print(f"⚠️ Bỏ qua session đã xử lý: {sid}")
+#                         continue
+
+#                     records.sort(key=lambda x: x["timestamp"])
+#                     first = records[0]
+#                     url = f"https://jira.shlx.vn/v1/logs?sn={first['sn']}&iid={first['iid']}&tid={first['tid']}&v={first['v']}"
+#                     remaining = total_sessions - idx
+#                     print(f"\n=== Bắt đầu session {sid} ({idx}/{total_sessions}), còn {remaining} session nữa ===")
+
+#                     # POST toàn bộ session 1 lần
+#                     post_session(url, records, dry_run=dry_run)
+
+#                     # Lấy record có ảnh để UPDATE
+#                     records_with_image = [r for r in records if r["face_image"]]
+#                     update_face_image(records_with_image, cur=cur, dry_run=dry_run)
+
+#                     # Ghi session đã post
+#                     with open(PROCESS_FILE, "a") as f:
+#                         f.write(sid + "\n")
+
+#                     print(f"=== Hoàn tất session {sid} ===\n")
+
+#                     # Delay giữa các session
+#                     time.sleep(0.5)
+
+#                 if not dry_run:
+#                     conn.commit()
+#         finally:
+#             conn.close()
+
+# if __name__ == "__main__":
+#     main()
+
 import os
 import paramiko
 import psycopg2
@@ -62,125 +260,120 @@ def parse_line(parts):
         "face_image": " ".join(parts[14:]) if len(parts) > 14 else ""
     }
 
-# ===== Hàm POST dữ liệu thực tế hoặc dry-run =====
-def post_data(url, record, jwt_token, dry_run=False, with_image=False):
-    headers = {"Authorization": f"Bearer {jwt_token}"}
-    body_fields = [
-        str(record["timestamp"]), record["lat"], record["lng"],
-        record["velocity"], record["distance"], record["distance2"],
-        record["direction"], record["session_id"], record["session_state"], record["face_id"]
-    ]
-    body = " ".join(body_fields)
+# ===== Hàm POST batch =====
+def post_data_batch(url, records, dry_run=False):
+    headers = {"Authorization": f"Bearer {JWT_TOKEN}"}
+    body_lines = []
+    for r in records:
+        body_fields = [
+            str(r["timestamp"]), r["lat"], r["lng"],
+            r["velocity"], r["distance"], r["distance2"],
+            r["direction"], r["session_id"], r["session_state"], r["face_id"]
+        ]
+        body_lines.append(" ".join(body_fields))
+    body = "\n".join(body_lines)
+    print(f"\n--- POST BATCH ({len(records)} bản ghi) ---")
+    print("URL:", url)
     if dry_run:
-        print(f"[DRY-RUN] POST {'CÓ ảnh' if with_image else 'KHÔNG ảnh'}: {body}")
+        print("[DRY-RUN] Không gửi thật.")
         return
-
     try:
         response = requests.post(url, headers=headers, data=body)
-        if response.status_code == 200:
-            print(f"✅ POST thành công")
-        else:
-            print(f"⚠️ POST lỗi: {response.status_code} {response.text}")
+        print("Kết quả:", response.status_code, response.text)
     except Exception as e:
-        print(f"❌ POST thất bại: {e}")
+        print("Lỗi POST:", e)
 
 # ===== Update face_image =====
 def update_face_image(records_with_image, cur=None, dry_run=False):
-    if not records_with_image:
+    if not records_with_image or cur is None:
+        print("\nKhông có bản ghi nào có ảnh để UPDATE.")
         return
+    print(f"\n=== BẮT ĐẦU UPDATE ẢNH ({len(records_with_image)} bản ghi) ===")
     for r in records_with_image:
-        event_date = datetime.utcfromtimestamp(r["timestamp"]).strftime("%Y-%m-%d %H:%M:%S")
+        event_date = datetime.utcfromtimestamp(r["timestamp"]).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
         sql = """
-        UPDATE trainee_outdoor_gps_logs
-        SET face_image = %s
-        WHERE session_id = %s
-          AND event_date = %s
-          AND session_state = 1
-          AND face_id = 1
+            UPDATE trainee_outdoor_gps_logs
+            SET face_image = %s
+            WHERE session_id = %s
+              AND event_date = %s
+              AND face_id = 1
         """
+        print("\n--- UPDATE ---")
+        print("SQL:", sql.replace("\n", " "))
+        print("PARAMS:", (r["face_image"], r["session_id"], event_date))
         if dry_run:
-            print(f"[DRY-RUN] UPDATE face_image session_id={r['session_id']} event_date={event_date}")
+            print("[DRY-RUN] Không UPDATE thật.")
         else:
             cur.execute(sql, (r["face_image"], r["session_id"], event_date))
-            print(f"✅ UPDATE face_image session_id={r['session_id']} event_date={event_date}")
+            print("UPDATE OK")
 
 # ===== Main =====
 def main():
     file_path = os.path.join(os.path.dirname(__file__), "test.log")
-    lines = []
-    with open(file_path, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            parts = line.split()
-            parsed = parse_line(parts)
-            if parsed:
-                lines.append(parsed)
+    session_file = os.path.join(os.path.dirname(__file__), "session_list.txt")
 
-    if not lines:
-        print("❌ Không có bản ghi nào trong file log")
-        return
+    # Đọc tất cả session từ session_list.txt
+    with open(session_file, "r", encoding="utf-8") as f:
+        sessions = [line.strip() for line in f if line.strip()]
 
-    # Nhóm theo session_id
-    sessions = {}
-    for r in lines:
-        sessions.setdefault(r["session_id"], []).append(r)
+    print(f"Tổng số session trong file: {len(sessions)}")
 
-    total_records = sum(len(v) for v in sessions.values())
-    print(f"Tổng số session: {len(sessions)}, tổng bản ghi: {total_records}")
-
-    confirm = input("Bạn có muốn thực sự POST và UPDATE tất cả dữ liệu không? (y/n): ").strip().lower()
-    dry_run = confirm != 'y'
-
-    # Mở SSHTunnel và kết nối DB 1 lần
+    # SSH + DB
     with SSHTunnelForwarder(
         (SSH_HOST, SSH_PORT),
         ssh_username=SSH_USER,
         ssh_password=SSH_PASSWORD,
         remote_bind_address=(DB_HOST, DB_PORT)
     ) as tunnel:
-        local_port = tunnel.local_bind_port
+
         conn = psycopg2.connect(
-            host='127.0.0.1', port=local_port,
-            user=DB_USER, password=DB_PASSWORD, dbname=DB_NAME
+            host="127.0.0.1",
+            port=tunnel.local_bind_port,
+            user=DB_USER,
+            password=DB_PASSWORD,
+            dbname=DB_NAME
         )
+
         try:
             with conn.cursor() as cur:
-                for sid, records in sessions.items():
-                    records.sort(key=lambda x: x["timestamp"])
-                    first = records[0]
+                # Vòng lặp qua từng session
+                total_sessions = len(sessions)
+                for idx, session_id in enumerate(sessions, 1):
+                    print(f"\n[{idx}/{total_sessions}] Xử lý session: {session_id}")
+
+                    # Đọc log file và lọc ra session hiện tại
+                    lines = []
+                    with open(file_path, "r", encoding="utf-8") as f_log:
+                        for line in f_log:
+                            parts = line.strip().split()
+                            parsed = parse_line(parts)
+                            if parsed and parsed["session_id"] == session_id:
+                                lines.append(parsed)
+
+                    if not lines:
+                        print("❌ Không tìm thấy bản ghi cho session này")
+                        continue
+
+                    lines.sort(key=lambda x: x["timestamp"])
+
+                    first = lines[0]
                     url = f"https://jira.shlx.vn/v1/logs?sn={first['sn']}&iid={first['iid']}&tid={first['tid']}&v={first['v']}"
-                    print(f"\n# POST URL cho session_id={sid}: {url}")
-                    print(f"# Tổng số bản ghi: {len(records)}\n")
 
-                    records_with_image = []
-                    for r in records:
-                        event_date = datetime.utcfromtimestamp(r["timestamp"]).strftime("%Y-%m-%d %H:%M:%S")
-                        # Check record đã tồn tại chưa
-                        cur.execute("""
-                            SELECT 1 FROM trainee_outdoor_gps_logs
-                            WHERE session_id = %s AND event_date = %s
-                            LIMIT 1
-                        """, (r["session_id"], event_date))
-                        if cur.fetchone():
-                            print(f"⚠️ Bỏ qua record đã tồn tại: session_id={r['session_id']} timestamp={r['timestamp']}")
-                            continue
+                    print(f"--- POST dữ liệu session {session_id} ---")
+                    post_data_batch(url, lines, dry_run=False)
 
-                        if r["face_image"]:
-                            post_data(url, r, JWT_TOKEN, dry_run=dry_run, with_image=True)
-                            records_with_image.append(r)
-                        else:
-                            post_data(url, r, JWT_TOKEN, dry_run=dry_run, with_image=False)
-                        time.sleep(0.3)
+                    # Chỉ update những record có face_image
+                    records_with_image = [r for r in lines if r["face_image"]]
+                    if records_with_image:
+                        print(f"--- UPDATE ảnh session {session_id} ---")
+                        update_face_image(records_with_image, cur, dry_run=False)
 
-                    # Update face_image
-                    update_face_image(records_with_image, cur=cur, dry_run=dry_run)
-
-                if not dry_run:
                     conn.commit()
+                    print(f"✅ Hoàn tất session {session_id}, còn lại {total_sessions - idx} session\n")
+
         finally:
             conn.close()
+
 
 if __name__ == "__main__":
     main()

@@ -1,7 +1,7 @@
 import os
 
 # Lấy đường dẫn file test.log cùng thư mục với file python
-file_path = os.path.join(os.path.dirname(__file__), "test.log")
+file_path = os.path.join(os.path.dirname(__file__), "test07.log")
 lines = []
 
 # Hàm parse 1 dòng

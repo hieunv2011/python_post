@@ -39,7 +39,7 @@ with open(file_path, "r", encoding="utf-8") as f:
             lines.append(parsed)
 
 # Chỉ lấy session_id đích danh
-sid = "70a0e3c1-bdc4-438d-a958-179af209c5b5"
+sid = "85347634-dbde-4d1c-81a6-ae8b655c8104"
 
 # Lọc theo session_id và timestamp >= 1763361109
 filtered = [row for row in lines if row["session_id"] == sid]
