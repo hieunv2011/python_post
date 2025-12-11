@@ -23,7 +23,7 @@ def parse_line(parts):
     }
 
 def main():
-    file_path = os.path.join(os.path.dirname(__file__), "test08.log")
+    file_path = os.path.join(os.path.dirname(__file__), "test09.log")
     session_list_file = os.path.join(os.path.dirname(__file__), "session_list.txt")
 
     lines = []

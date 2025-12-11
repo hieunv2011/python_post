@@ -1,1 +1,0 @@
-session_id | branch_name | state | log_count | last_timestamp

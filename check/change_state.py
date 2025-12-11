@@ -44,8 +44,9 @@ def get_sessions_to_update(session_ids):
             tos.state
         FROM trainee_outdoor_sessions tos
         WHERE tos.session_id = %s
-          AND tos.state = 2
-    """
+          AND tos.state = 1
+    """  # <<< đổi điều kiện, chỉ lấy state=1 để chuyển ngược lại thành 2
+
     with SSHTunnelForwarder(
         (SSH_HOST, SSH_PORT),
         ssh_username=SSH_USER,
@@ -66,7 +67,7 @@ def get_sessions_to_update(session_ids):
                     cur.execute(sql, (sid,))
                     rows = cur.fetchall()
                     for r in rows:
-                        results.append(r[0])  # session_id
+                        results.append(r[0])
         finally:
             conn.close()
     return results
@@ -79,12 +80,11 @@ def update_state(session_ids):
 
     sql_update = """
         UPDATE trainee_outdoor_sessions
-        SET state = 1,
-            archived_url = ''
+        SET state = 2
         WHERE session_id = %s
     """
 
-    print(f"Tổng {len(session_ids)} session sẽ update state=1 và archived_url=''")
+    print(f"Tổng {len(session_ids)} session sẽ update state=2")
     confirm = input("Bạn có muốn tiếp tục? (y/n): ").strip().lower()
     if confirm != "y":
         print("Hủy thao tác update.")
@@ -108,14 +108,14 @@ def update_state(session_ids):
             with conn.cursor() as cur:
                 for sid in session_ids:
                     cur.execute(sql_update, (sid,))
-                    print(f"✅ session_id={sid} → state=1, archived_url=''")
+                    print(f"✅ session_id={sid} → state=2")
                 conn.commit()
         finally:
             conn.close()
 
 # ===== Main =====
 def main():
-    log_path = os.path.join(os.path.dirname(__file__), "test07.log")
+    log_path = os.path.join(os.path.dirname(__file__), "test09.log")
     session_ids_all = set()
 
     with open(log_path, "r", encoding="utf-8") as f:

@@ -309,7 +309,7 @@ def update_face_image(records_with_image, cur=None, dry_run=False):
 
 # ===== Main =====
 def main():
-    file_path = os.path.join(os.path.dirname(__file__), "test08.log")
+    file_path = os.path.join(os.path.dirname(__file__), "test09.log")
     session_file = os.path.join(os.path.dirname(__file__), "session_list.txt")
 
     # Đọc tất cả session từ session_list.txt
